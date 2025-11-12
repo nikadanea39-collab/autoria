@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <title>Панель рефералів</title>
+  <style>
+    body { font-family: sans-serif; background: #f7f7f7; display: flex; justify-content: center; padding: 50px; }
+    .box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 400px; text-align: center; }
+    input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+    button { background: #28a745; color: white; padding: 12px; border: none; border-radius: 8px; width: 100%; font-weight: bold; cursor: pointer; }
+    button:hover { background: #218838; }
+    .link { background: #e3f2fd; padding: 15px; margin: 15px 0; border-radius: 8px; word-break: break-all; font-family: monospace; font-size: 14px; }
+    .copy { background: #007bff; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Реферальна панель</h2>
+    <input type="text" id="nick" placeholder="Твій нік (без @)" />
+    <button onclick="create()">Створити посилання</button>
+
+    <div id="result" style="display:none; margin-top:20px;">
+      <p>Твоє посилання:</p>
+      <div class="link" id="link"></div>
+      <button class="copy" onclick="copy()">Копіювати</button>
+    </div>
+  </div>
+
+  <script>
+    async function create() {
+      const nick = document.getElementById('nick').value.trim();
+      if (!nick) return alert('Введи нік!');
+
+      const res = await fetch('/api/create-ref', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nick })
+      });
+      const data = await res.json();
+
+      document.getElementById('result').style.display = 'block';
+      document.getElementById('link').textContent = data.refLink;
+    }
+
+    function copy() {
+      navigator.clipboard.writeText(document.getElementById('link').textContent);
+      alert('Скопійовано!');
+    }
+  </script>
+</body>
+</html>
